@@ -1001,15 +1001,6 @@ async def admin_usdt_orders_history_callback(update: Update, context: ContextTyp
     from database import db_execute
     from datetime import datetime
 
-    # ✅ 加在这里，解析完 filter 和 page 之后
-    cache_key = f"{order_filter}_{page}"
-    last_cache = context.user_data.get('last_order_cache', '')
-
-    if cache_key == last_cache:
-        return  # 相同请求直接跳过
-
-    context.user_data['last_order_cache'] = cache_key
-
     # 构建查询条件
     filter_map = {
         "all": "1=1",
