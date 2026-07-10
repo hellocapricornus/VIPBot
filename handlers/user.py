@@ -169,18 +169,15 @@ def clean_expired_orders():
 async def check_and_handle_channel(context, user_id, kick_only=False):
     """检查频道关注并处理，返回是否关注"""
     is_following = await is_user_following_channel(context, user_id)
+    
+    if is_following is None:
+        logging.warning(f"用户 {user_id} 频道关注检查失败（API异常），跳过处理")
+        return None
+    
     if not is_following:
         db_execute("UPDATE users SET needs_channel_check=1 WHERE user_id=?", (user_id,))
-        if kick_only:
-            try:
-                await context.bot.ban_chat_member(config.GROUP_ID, user_id)
-                await context.bot.unban_chat_member(config.GROUP_ID, user_id)
-                logging.info(f"用户 {user_id} 未关注频道，已踢出（未封禁）")
-            except Exception as e:
-                logging.error(f"踢出用户 {user_id} 失败: {e}")
-        else:
-            from utils import kick_user
-            await kick_user(context, user_id, "未关注频道", ban=True)
+        from utils import kick_user
+        await kick_user(context, user_id, "未关注频道", ban=True)
         try:
             await context.bot.send_message(
                 user_id,
@@ -244,6 +241,9 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def show_channel_guide(update: Update, context: ContextTypes.DEFAULT_TYPE, user_id: int):
     """显示频道关注引导"""
     is_following = await is_user_following_channel(context, user_id)
+    if is_following is None:
+        await update.message.reply_text("⚠️ 当前无法检查频道关注状态，请稍后重试。")
+        return
     if not is_following:
         keyboard = InlineKeyboardMarkup([
             [InlineKeyboardButton("📢 关注频道", url=config.CHANNEL_LINK)],
@@ -447,6 +447,9 @@ async def check_follow_callback(update: Update, context: ContextTypes.DEFAULT_TY
     await query.answer()
     user_id = query.from_user.id
     is_following = await is_user_following_channel(context, user_id)
+    if is_following is None:
+        await query.edit_message_text("⚠️ 当前无法检查频道关注状态，请稍后重试。")
+        return
     if not is_following:
         keyboard = InlineKeyboardMarkup([
             [InlineKeyboardButton("📢 关注频道", url=config.CHANNEL_LINK)],
@@ -483,6 +486,9 @@ async def user_query_time(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await query.answer()
     user_id = query.from_user.id
     is_following = await is_user_following_channel(context, user_id)
+    if is_following is None:
+        await query.edit_message_text("⚠️ 当前无法检查频道关注状态，请稍后重试。")
+        return
     if not is_following:
         keyboard = InlineKeyboardMarkup([
             [InlineKeyboardButton("📢 关注频道", url=config.CHANNEL_LINK)],
@@ -549,6 +555,9 @@ async def back_to_user_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 mark_address_idle(order["address"])
             del pending_usdt_orders[amount_str]
     is_following = await is_user_following_channel(context, user_id)
+    if is_following is None:
+        await query.edit_message_text("⚠️ 当前无法检查频道关注状态，请稍后重试。")
+        return
     if not is_following:
         keyboard = InlineKeyboardMarkup([
             [InlineKeyboardButton("📢 关注频道", url=config.CHANNEL_LINK)],
@@ -588,6 +597,9 @@ async def user_buy_usdt(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await query.answer()
     user_id = query.from_user.id
     is_following = await is_user_following_channel(context, user_id)
+    if is_following is None:
+        await query.edit_message_text("⚠️ 当前无法检查频道关注状态，请稍后重试。")
+        return
     if not is_following:
         keyboard = InlineKeyboardMarkup([
             [InlineKeyboardButton("📢 关注频道", url=config.CHANNEL_LINK)],
@@ -743,7 +755,9 @@ async def check_usdt_payment_callback(update: Update, context: ContextTypes.DEFA
     if result and result["success"]:
         unban_user(user_id)
         is_following = await is_user_following_channel(context, user_id)
-        if not is_following:
+        if is_following is None:
+            logging.warning(f"用户 {user_id} 支付成功，但频道关注检查失败（API异常），继续处理")
+        elif not is_following:
             await query.edit_message_text(
                 f"⚠️ 检测到您未关注频道！\n\n👉 {config.CHANNEL_LINK}",
                 reply_markup=InlineKeyboardMarkup([
@@ -754,10 +768,6 @@ async def check_usdt_payment_callback(update: Update, context: ContextTypes.DEFA
             return
 
         new_expire = extend_member(user_id, order["days"])
-        try:
-            await context.bot.unban_chat_member(config.GROUP_ID, user_id)
-        except Exception as e:
-            logging.warning(f"解封失败: {e}")
 
         db_execute("""
             UPDATE usdt_orders SET status='paid', paid_at=?, tx_id=?
