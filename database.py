@@ -247,7 +247,8 @@ def get_user_status(user_id: int) -> Tuple[bool, str]:
                     return True, f"会员剩余 {hours_left} 小时"
             else:
                 return False, "会员已到期，请续费"
-        except:
+        except Exception as e:
+            logging.error(f"解析用户 {user_id} expire_time 失败: {e}, 值: {row[0]}")
             return False, "会员已到期，请续费"
 
     # 优先级3: 检查是否有过付费记录（已到期）
@@ -265,12 +266,12 @@ def get_user_status(user_id: int) -> Tuple[bool, str]:
             if trial_end > now():
                 return True, f"试用剩余 {(trial_end-now()).seconds//3600} 小时"
             else:
-                # 🔧 试用到期，根据历史区分显示
                 if has_paid:
                     return False, "会员已到期，请续费"
                 else:
                     return False, "试用已到期，请购买会员"
-        except:
+        except Exception as e:
+            logging.error(f"解析用户 {user_id} trial_start_time 失败: {e}, 值: {row[2]}")
             return False, "试用已到期，请购买会员"
 
     # 优先级5: 被封禁
@@ -290,11 +291,8 @@ def has_valid_membership(user_id: int) -> bool:
 
 def add_trial(user_id: int):
     db_execute("""
-        INSERT INTO users (user_id, trial_start_time, trial_reminded, is_banned)
+        INSERT OR IGNORE INTO users (user_id, trial_start_time, trial_reminded, is_banned)
         VALUES (?, ?, 0, 0)
-        ON CONFLICT(user_id) DO UPDATE SET 
-            trial_start_time=excluded.trial_start_time, 
-            expire_time=NULL, is_permanent=0, is_banned=0, trial_reminded=0
     """, (user_id, now().isoformat()))
 
 
@@ -350,14 +348,14 @@ def delete_user_membership(user_id: int):
     """, (user_id,))
 
 
-async def is_user_following_channel(context, user_id: int) -> bool:
+async def is_user_following_channel(context, user_id: int) -> Optional[bool]:
     import config
     try:
         member = await context.bot.get_chat_member(chat_id=config.CHANNEL_ID, user_id=user_id)
         return member.status in ["member", "administrator", "creator"]
     except Exception as e:
         logging.error(f"检查用户 {user_id} 频道关注状态失败: {e}")
-        return False
+        return None
 
 
 def save_message(from_user: int, to_user: int, message: str):
