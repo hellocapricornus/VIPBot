@@ -47,16 +47,8 @@ async def cmd_add_trial(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     add_trial(uid)
 
-    try:
-        member = await context.bot.get_chat_member(config.GROUP_ID, uid)
-        if member.status in ["left", "kicked"]:
-            await context.bot.unban_chat_member(config.GROUP_ID, uid)
-            logging.info(f"用户 {uid} 已解封")
-    except Exception as e:
-        logging.warning(f"解封用户 {uid} 失败: {e}")
-
     log_admin_action(update.effective_user.id, "add_trial", uid)
-    await update.message.reply_text(f"✅ 已为用户 {uid} 添加{config.TRIAL_HOURS}小时试用并解封")
+    await update.message.reply_text(f"✅ 已为用户 {uid} 添加{config.TRIAL_HOURS}小时试用")
 
 async def cmd_add_permanent(update: Update, context: ContextTypes.DEFAULT_TYPE):
     config.refresh_config()
@@ -70,16 +62,8 @@ async def cmd_add_permanent(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     add_permanent(uid)
 
-    try:
-        member = await context.bot.get_chat_member(config.GROUP_ID, uid)
-        if member.status in ["left", "kicked"]:
-            await context.bot.unban_chat_member(config.GROUP_ID, uid)
-            logging.info(f"用户 {uid} 已解封")
-    except Exception as e:
-        logging.warning(f"解封用户 {uid} 失败: {e}")
-
     log_admin_action(update.effective_user.id, "add_permanent", uid)
-    await update.message.reply_text(f"✅ 已将用户 {uid} 设为永久会员并解封")
+    await update.message.reply_text(f"✅ 已将用户 {uid} 设为永久会员")
 
 async def cmd_extend(update: Update, context: ContextTypes.DEFAULT_TYPE):
     config.refresh_config()
@@ -103,16 +87,6 @@ async def cmd_extend(update: Update, context: ContextTypes.DEFAULT_TYPE):
     from database import get_user_status
     is_valid, status = get_user_status(uid)
     logging.info(f"执行后用户状态: is_valid={is_valid}, status={status}")
-
-    try:
-        member = await context.bot.get_chat_member(config.GROUP_ID, uid)
-        if member.status in ["left", "kicked"]:
-            await context.bot.unban_chat_member(config.GROUP_ID, uid)
-            logging.info(f"用户 {uid} 已被解封")
-        else:
-            logging.info(f"用户 {uid} 已在群组中，跳过解封操作")
-    except Exception as e:
-        logging.warning(f"检查/解封用户 {uid} 失败: {e}")
 
     log_admin_action(update.effective_user.id, "extend", uid)
 
@@ -146,10 +120,6 @@ async def cmd_unban(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(f"❌ {error}\n用法: /unban 用户ID")
         return
     unban_user(uid)
-    try:
-        await context.bot.unban_chat_member(config.GROUP_ID, uid)
-    except:
-        pass
 
     log_admin_action(update.effective_user.id, "unban", uid)
     await update.message.reply_text(f"已解封用户 {uid}")
@@ -761,27 +731,17 @@ async def check_expired(context: ContextTypes.DEFAULT_TYPE):
         if check_admin(uid):
             continue
 
-        # 🔧 修复：使用 get_user_status 统一判断用户是否有有效资格
         is_valid, status = get_user_status(uid)
 
-        # 检查用户是否还在群组中
         try:
             member = await context.bot.get_chat_member(config.GROUP_ID, uid)
             if member.status not in ["member", "administrator", "creator"]:
-                # 🔧 关键修复：只有真正无资格的用户才删除
-                if is_valid:
-                    # 有资格的用户不在群组，只记录日志，不删除
-                    logging.info(f"✅ 有资格用户 {uid} 不在群组中，保留记录 (状态: {status})")
-                else:
-                    # 无资格用户不在群组，删除记录
-                    logging.info(f"❌ 无资格用户 {uid} 不在群组中，从数据库删除 (状态: {status})")
-                    db_execute("DELETE FROM users WHERE user_id=?", (uid,))
+                logging.info(f"用户 {uid} 不在群组中，保留记录 (状态: {status})")
                 continue
         except Exception as e:
             logging.info(f"检查用户 {uid} 群组状态失败: {e}")
             continue
 
-        # 检查频道关注 - 只踢出不封禁
         from handlers.user import check_and_handle_channel
         await check_and_handle_channel(context, uid, kick_only=True)
 
@@ -900,7 +860,9 @@ async def admin_confirm_usdt_callback(update: Update, context: ContextTypes.DEFA
     # 添加频道检查
     from database import is_user_following_channel
     is_following = await is_user_following_channel(context, user_id)
-    if not is_following:
+    if is_following is None:
+        logging.warning(f"用户 {user_id} 频道关注检查失败（API异常），跳过频道检查继续处理")
+    elif not is_following:
         await query.edit_message_text(
             f"⚠️ 用户 {user_id} 未关注频道！\n\n"
             f"请先让用户关注频道后再确认订单。\n\n"
@@ -920,16 +882,7 @@ async def admin_confirm_usdt_callback(update: Update, context: ContextTypes.DEFA
     new_expire = extend_member(user_id, days)
     logging.info(f"会员延期后到期时间: {new_expire}")
 
-    # 3. 解封群组中的用户
-    try:
-        member = await context.bot.get_chat_member(config.GROUP_ID, user_id)
-        if member.status in ["left", "kicked"]:
-            await context.bot.unban_chat_member(config.GROUP_ID, user_id)
-            logging.info(f"用户 {user_id} 已从群组解封")
-    except Exception as e:
-        logging.warning(f"解封用户 {user_id} 失败: {e}")
-
-    # 4. 获取用户状态
+    # 3. 获取用户状态
     is_valid, status = get_user_status(user_id)
 
     # 5. 更新数据库中的订单状态
