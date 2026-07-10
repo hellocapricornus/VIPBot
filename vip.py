@@ -251,7 +251,7 @@ def main():
                 finally:
                     lock.release()
 
-            app.job_queue.run_repeating(check_expired_with_lock, interval=30, first=5)
+            app.job_queue.run_repeating(check_expired_with_lock, interval=300, first=10)
             app.job_queue.run_repeating(check_all_group_members_with_lock, interval=1800, first=60)
             app.job_queue.run_repeating(clean_database_with_lock, interval=300, first=15)
             app.job_queue.run_daily(clean_database_with_lock, time=dt.time(hour=3, minute=0), days=tuple(range(7)))
@@ -304,23 +304,20 @@ async def _check_all_group_members(context):
             # 检查频道关注
             is_following = await is_user_following_channel(context, user_id)
 
-            if not is_following:
+            if is_following is None:
+                logging.warning(f"用户 {user_id} 频道关注检查失败（API异常），跳过处理")
+            elif not is_following:
                 db_execute("UPDATE users SET needs_channel_check=1 WHERE user_id=?", (user_id,))
+                kicked += 1
+                logging.info(f"用户 {user_id} 未关注频道，已标记需要检查")
                 try:
-                    await context.bot.ban_chat_member(config.GROUP_ID, user_id)
-                    await context.bot.unban_chat_member(config.GROUP_ID, user_id)
-                    kicked += 1
-                    logging.info(f"用户 {user_id} 未关注频道，已移除")
-                    try:
-                        await context.bot.send_message(
-                            user_id,
-                            f"⚠️ 你被移出了群组，因为你没有关注我们的频道。\n\n"
-                            f"请关注频道后重新申请加入。\n\n👉 {config.CHANNEL_LINK}"
-                        )
-                    except:
-                        pass
-                except Exception as e:
-                    logging.warning(f"踢出用户 {user_id} 失败: {e}")
+                    await context.bot.send_message(
+                        user_id,
+                        f"⚠️ 检测到您未关注频道，请关注后继续使用服务。\n\n"
+                        f"👉 {config.CHANNEL_LINK}"
+                    )
+                except:
+                    pass
 
             await asyncio.sleep(0.05)
 
