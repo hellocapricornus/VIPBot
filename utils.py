@@ -23,25 +23,22 @@ async def send_temp(context: ContextTypes.DEFAULT_TYPE, text: str, chat_id: int,
 
 
 async def kick_user(context: ContextTypes.DEFAULT_TYPE, user_id: int, reason: str = "未通过验证", ban: bool = True):
-    """踢出用户（不再封禁 Telegram 群组）
+    """踢出用户并标记封禁状态
 
     Args:
-        ban: True=标记数据库封禁，False=只踢出不标记
+        ban: True=标记数据库封禁，False=只踢出不标记数据库
     """
     from database import ban_user as db_ban, unban_user, db_execute
     try:
-        # 🔧 只踢出不封禁 Telegram（先 ban 再立即 unban）
         await context.bot.ban_chat_member(config.GROUP_ID, user_id)
         await context.bot.unban_chat_member(config.GROUP_ID, user_id)
 
         if ban:
-            # 在数据库中标记为封禁
             db_ban(user_id, reason)
-            logging.info(f"已踢出用户 {user_id}，数据库标记封禁")
+            logging.info(f"已踢出用户 {user_id}，数据库标记封禁，原因: {reason}")
         else:
-            logging.info(f"已踢出用户 {user_id}（未封禁）")
+            logging.info(f"已踢出用户 {user_id}（未封禁），原因: {reason}")
 
-        # 尝试私聊通知
         try:
             await context.bot.send_message(user_id, f"⚠️ 你已被移出群组\n原因: {reason}\n如有疑问请联系管理员。")
         except:
