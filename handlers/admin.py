@@ -361,7 +361,7 @@ async def admin_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
             if perm:
                 text += f"• {display}\n  🆔 `{uid}` | 永久会员\n\n"
             elif exp:
-                exp_date = datetime.fromisoformat(exp).strftime("%Y-%m-%d %H:%M")
+                exp_date = datetime.fromisoformat(exp).astimezone(BEIJING).strftime("%Y-%m-%d %H:%M")
                 text += f"• {display}\n  🆔 `{uid}` | 到期 {exp_date}\n\n"
 
     # ✅ 显示试用用户详情
@@ -383,7 +383,7 @@ async def admin_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
             except:
                 display = str(uid)
 
-            start_time = datetime.fromisoformat(start)
+            start_time = datetime.fromisoformat(start).astimezone(BEIJING)
             end_time = start_time + timedelta(hours=config.TRIAL_HOURS)
             text += f"• {display}\n  🆔 `{uid}` | 到期 {end_time.strftime('%Y-%m-%d %H:%M')}\n\n"
 
@@ -463,7 +463,7 @@ async def admin_members(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if perm:
             text += f"• {name} ({uid}) - 永久会员\n"
         else:
-            exp_date = datetime.fromisoformat(exp).strftime("%Y-%m-%d")
+            exp_date = datetime.fromisoformat(exp).astimezone(BEIJING).strftime("%Y-%m-%d")
             text += f"• {name} ({uid}) - 到期 {exp_date}\n"
     await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("◀️ 返回", callback_data="back_to_admin_menu")]]))
 
@@ -479,7 +479,7 @@ async def admin_trials(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     text = "🧪 试用用户\n"
     for uid, start in rows[:20]:
-        start_time = datetime.fromisoformat(start)
+        start_time = datetime.fromisoformat(start).astimezone(BEIJING)
         end_time = start_time + timedelta(hours=config.TRIAL_HOURS)
         try:
             user = await context.bot.get_chat(uid)
@@ -1033,14 +1033,14 @@ async def admin_usdt_orders_history_callback(update: Update, context: ContextTyp
         }
         icon, status_text = status_map.get(status, ("❓", status))
 
-        created_time = datetime.fromisoformat(created_at).strftime("%m-%d %H:%M")
+        created_time = datetime.fromisoformat(created_at).astimezone(BEIJING).strftime("%m-%d %H:%M")
 
         text += f"{icon} **{plan_name}** - {amount} USDT\n"
         text += f"  👤 {user_display}\n"
         text += f"  📅 创建: {created_time}\n"
 
         if status == "paid" and paid_at:
-            paid_time = datetime.fromisoformat(paid_at).strftime("%m-%d %H:%M")
+            paid_time = datetime.fromisoformat(paid_at).astimezone(BEIJING).strftime("%m-%d %H:%M")
             text += f"  💰 支付: {paid_time}\n"
 
         if tx_id and tx_id != 'manual_confirm':
