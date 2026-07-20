@@ -219,6 +219,7 @@ def main():
         if enable_scheduler:
             # ✅ 使用带锁的检查任务
             async def check_expired_with_lock(context):
+                logging.info(f"定时任务触发: check_expired_with_lock (Worker: {WORKER_ID})")
                 from scheduler_lock import SchedulerLock
                 lock = SchedulerLock("check_expired", timeout=120)
                 if not lock.acquire():
@@ -228,6 +229,7 @@ def main():
                     await check_expired(context)
                 finally:
                     lock.release()
+                logging.info(f"定时任务完成: check_expired_with_lock (Worker: {WORKER_ID})")
 
             async def check_all_group_members_with_lock(context):
                 from scheduler_lock import SchedulerLock
