@@ -412,13 +412,16 @@ def clean_old_orders():
         SELECT order_id, plan_name, created_at FROM usdt_orders WHERE status = 'paid'
     """).fetchall()
     for order_id, plan_name, created_at_str in paid_orders:
-        created_at = datetime.fromisoformat(created_at_str)
-        retention_days = get_retention_days(plan_name)
-        if retention_days:
-            cutoff_date = created_at + timedelta(days=retention_days)
-            if current > cutoff_date:
-                db_execute("DELETE FROM usdt_orders WHERE order_id=?", (order_id,))
-                deleted_count += 1
+        try:
+            created_at = datetime.fromisoformat(created_at_str).astimezone(BEIJING)
+            retention_days = get_retention_days(plan_name)
+            if retention_days:
+                cutoff_date = created_at + timedelta(days=retention_days)
+                if current > cutoff_date:
+                    db_execute("DELETE FROM usdt_orders WHERE order_id=?", (order_id,))
+                    deleted_count += 1
+        except Exception as e:
+            logging.error(f"处理订单 {order_id} 时出错: {e}")
     logging.info(f"总计清理订单: {deleted_count} 条")
     return deleted_count
 
