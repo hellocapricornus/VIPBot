@@ -36,8 +36,11 @@ def restore_orders_on_startup():
         address = row[6] if len(row) > 6 else ""
         amount_key = f"{amount:.2f}"
         if isinstance(created_at, str):
-            created_dt = datetime.fromisoformat(created_at)
-            created_ts = created_dt.timestamp()
+            try:
+                created_dt = datetime.fromisoformat(created_at).astimezone(BEIJING)
+                created_ts = created_dt.timestamp()
+            except:
+                created_ts = time.time()
         else:
             created_ts = created_at.timestamp() if hasattr(created_at, 'timestamp') else time.time()
         pending_usdt_orders[amount_key] = {
