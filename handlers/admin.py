@@ -722,10 +722,15 @@ async def check_expired(context: ContextTypes.DEFAULT_TYPE):
     import logging
 
     current = now()
-    logging.info("定时任务执行：检查频道关注、试用到期、会员到期")
+    logging.info(f"========== 定时任务执行: check_expired ==========")
+    logging.info(f"当前时间: {current}")
+    logging.info(f"GROUP_ID: {config.GROUP_ID}")
+    logging.info(f"TRIAL_HOURS: {config.TRIAL_HOURS}")
+    logging.info(f"REMIND_HOURS: {config.REMIND_HOURS}")
 
     # ================= 1. 检查频道关注状态 =================
     all_users = db_execute("SELECT user_id, expire_time, is_permanent FROM users WHERE is_banned=0").fetchall()
+    logging.info(f"步骤1: 查询到 {len(all_users)} 个未封禁用户")
 
     for (uid, expire_time, is_permanent) in all_users:
         if check_admin(uid):
@@ -746,41 +751,72 @@ async def check_expired(context: ContextTypes.DEFAULT_TYPE):
         await check_and_handle_channel(context, uid, kick_only=True)
 
     # ================= 2. 检查试用到期 =================
-    trials = db_execute("SELECT user_id, trial_start_time, reminded_type FROM users WHERE trial_start_time IS NOT NULL AND expire_time IS NULL AND is_permanent=0 AND is_banned=0").fetchall()
-    for uid, start, reminded_type in trials:
+    trials = db_execute("SELECT user_id, trial_start_time, reminded_type, is_banned FROM users WHERE trial_start_time IS NOT NULL AND expire_time IS NULL AND is_permanent=0").fetchall()
+    logging.info(f"步骤2: 查询到 {len(trials)} 个试用用户（含已封禁）")
+
+    for uid, start, reminded_type, is_banned in trials:
         try:
             start_time = datetime.fromisoformat(start).astimezone(BEIJING)
             end_time = start_time + timedelta(hours=config.TRIAL_HOURS)
+            
+            logging.debug(f"用户 {uid}: 试用开始={start_time}, 试用结束={end_time}, 当前={current}, 到期={current >= end_time}, 已封禁={is_banned}")
 
             if current >= end_time:
-                logging.info(f"用户 {uid} 试用到期，准备封禁并踢出")
-                await kick_user(context, uid, "试用到期", ban=True)
-                db_execute("UPDATE users SET is_banned=1, reminded_type=NULL WHERE user_id=?", (uid,))
+                if is_banned == 0:
+                    logging.info(f"❌ 用户 {uid} 试用到期，准备封禁并踢出")
+                    await kick_user(context, uid, "试用到期", ban=True)
+                    db_execute("UPDATE users SET is_banned=1, reminded_type=NULL WHERE user_id=?", (uid,))
+                    logging.info(f"✅ 用户 {uid} 已封禁并踢出")
+                else:
+                    logging.info(f"用户 {uid} 试用已到期且已封禁，检查是否仍在群组中")
+                    try:
+                        member = await context.bot.get_chat_member(config.GROUP_ID, uid)
+                        if member.status in ["member", "administrator", "creator"]:
+                            logging.info(f"用户 {uid} 已封禁但仍在群组中，强制执行踢出")
+                            await kick_user(context, uid, "试用到期", ban=True)
+                    except Exception as e:
+                        logging.info(f"用户 {uid} 不在群组中或无法检查: {e}")
             elif (end_time - current) <= timedelta(hours=config.REMIND_HOURS):
-                if reminded_type != 'trial':
+                if reminded_type != 'trial' and is_banned == 0:
                     try:
                         await context.bot.send_message(
                             uid, 
                             f"⏰ **试用即将到期**\n\n您的试用剩余 {config.REMIND_HOURS} 小时，请购买会员以继续使用。\n\n发送 /start 查看购买选项。"
                         )
                         db_execute("UPDATE users SET reminded_type='trial' WHERE user_id=?", (uid,))
+                        logging.info(f"⚠️ 已提醒用户 {uid} 试用即将到期")
                     except:
                         pass
         except Exception as e:
             logging.error(f"处理试用用户 {uid} 时出错: {e}")
 
     # ================= 3. 检查会员到期 =================
-    members = db_execute("SELECT user_id, expire_time, reminded_type FROM users WHERE expire_time IS NOT NULL AND is_permanent=0 AND is_banned=0").fetchall()
-    for uid, exp, reminded_type in members:
+    members = db_execute("SELECT user_id, expire_time, reminded_type, is_banned FROM users WHERE expire_time IS NOT NULL AND is_permanent=0").fetchall()
+    logging.info(f"步骤3: 查询到 {len(members)} 个会员用户（含已封禁）")
+
+    for uid, exp, reminded_type, is_banned in members:
         try:
             expire = datetime.fromisoformat(exp).astimezone(BEIJING)
+            
+            logging.debug(f"用户 {uid}: 到期时间={expire}, 当前={current}, 到期={current >= expire}, 已封禁={is_banned}")
 
             if current >= expire:
-                logging.info(f"用户 {uid} 会员到期，准备封禁并踢出")
-                await kick_user(context, uid, "会员到期", ban=True)
-                db_execute("UPDATE users SET is_banned=1, reminded_type=NULL WHERE user_id=?", (uid,))
+                if is_banned == 0:
+                    logging.info(f"❌ 用户 {uid} 会员到期，准备封禁并踢出")
+                    await kick_user(context, uid, "会员到期", ban=True)
+                    db_execute("UPDATE users SET is_banned=1, reminded_type=NULL WHERE user_id=?", (uid,))
+                    logging.info(f"✅ 用户 {uid} 已封禁并踢出")
+                else:
+                    logging.info(f"用户 {uid} 会员已到期且已封禁，检查是否仍在群组中")
+                    try:
+                        member = await context.bot.get_chat_member(config.GROUP_ID, uid)
+                        if member.status in ["member", "administrator", "creator"]:
+                            logging.info(f"用户 {uid} 已封禁但仍在群组中，强制执行踢出")
+                            await kick_user(context, uid, "会员到期", ban=True)
+                    except Exception as e:
+                        logging.info(f"用户 {uid} 不在群组中或无法检查: {e}")
             elif (expire - current) <= timedelta(days=config.MEMBER_REMIND_DAYS):
-                if reminded_type != 'member':
+                if reminded_type != 'member' and is_banned == 0:
                     days_left = (expire - current).days
                     try:
                         await context.bot.send_message(
@@ -788,10 +824,13 @@ async def check_expired(context: ContextTypes.DEFAULT_TYPE):
                             f"⏰ **会员即将到期**\n\n您的会员还剩 {days_left} 天到期，请及时续费。\n\n发送 /start 查看续费选项。"
                         )
                         db_execute("UPDATE users SET reminded_type='member' WHERE user_id=?", (uid,))
+                        logging.info(f"⚠️ 已提醒用户 {uid} 会员到期即将到期")
                     except:
                         pass
         except Exception as e:
             logging.error(f"处理会员用户 {uid} 时出错: {e}")
+
+    logging.info(f"========== 定时任务完成: check_expired ==========")
 
 async def admin_usdt_orders_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     config.refresh_config()
