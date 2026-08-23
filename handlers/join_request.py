@@ -22,6 +22,11 @@ async def handle_join_request(update: Update, context: ContextTypes.DEFAULT_TYPE
     from database import is_user_following_channel
     is_following = await is_user_following_channel(context, user_id)
 
+    # API 异常时暂不处理，保留申请（避免误拒合法用户）
+    if is_following is None:
+        logging.warning(f"用户 {user_id} 频道关注检查失败（API异常），暂不处理入群申请")
+        return
+
     if not is_following:
         await request.decline()
         logging.info(f"用户 {user_id} 未关注频道，拒绝入群")
