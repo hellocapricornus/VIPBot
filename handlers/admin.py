@@ -425,24 +425,6 @@ async def admin_unban(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await query.answer()
     await query.edit_message_text("请回复: /unban 用户ID", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("◀️ 返回", callback_data="back_to_admin_menu")]]))
 
-# 新增：删除会员回调
-async def admin_delete_member(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    config.refresh_config()
-    query = update.callback_query
-    await query.answer()
-    await query.edit_message_text(
-        "⚠️ **删除会员功能**\n\n"
-        "此操作将：\n"
-        "1. 删除用户的所有会员资格（包括永久会员）\n"
-        "2. 将用户封禁\n"
-        "3. 踢出群组\n\n"
-        "请回复: /delete_member 用户ID\n"
-        "例如: /delete_member 123456789\n\n"
-        "⚠️ 此操作不可撤销！",
-        reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("◀️ 返回", callback_data="back_to_admin_menu")]]),
-        parse_mode="Markdown"
-    )
-
 async def admin_members(update: Update, context: ContextTypes.DEFAULT_TYPE):
     config.refresh_config()
     query = update.callback_query
@@ -658,18 +640,6 @@ async def broadcast_confirm_callback(update: Update, context: ContextTypes.DEFAU
 
     await query.edit_message_text("⏳ 正在发送广播...")
 
-    # ✅ 改用 copy_message 获取原始消息
-    try:
-        message_id = await context.bot.copy_message(
-            chat_id=query.message.chat_id,
-            from_chat_id=pending['chat_id'],
-            message_id=pending['message_id']
-        )
-    except:
-        await query.edit_message_text("❌ 无法获取原始消息，请重新发送")
-        context.user_data['broadcast_pending'] = None
-        return
-
     from database import get_all_users_for_broadcast
     users = get_all_users_for_broadcast()
 
@@ -678,7 +648,7 @@ async def broadcast_confirm_callback(update: Update, context: ContextTypes.DEFAU
 
     for (uid,) in users:
         try:
-            # ✅ 直接 copy 消息给用户，保留所有格式
+            # 直接 copy 原始消息给用户，保留所有格式
             await context.bot.copy_message(
                 chat_id=uid,
                 from_chat_id=pending['chat_id'],
