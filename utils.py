@@ -4,7 +4,6 @@ import logging
 from telegram.ext import ContextTypes
 import config
 from config import DELETE_DELAY
-from database import db_execute, ban_user
 
 async def send_temp(context: ContextTypes.DEFAULT_TYPE, text: str, chat_id: int, delay: int = DELETE_DELAY):
     """发送临时消息并倒计时删除"""
@@ -28,7 +27,7 @@ async def kick_user(context: ContextTypes.DEFAULT_TYPE, user_id: int, reason: st
     Args:
         ban: True=标记数据库封禁，False=只踢出不标记数据库
     """
-    from database import ban_user as db_ban, unban_user, db_execute
+    from database import ban_user as db_ban
     try:
         await context.bot.ban_chat_member(config.GROUP_ID, user_id)
         await context.bot.unban_chat_member(config.GROUP_ID, user_id)
