@@ -43,12 +43,20 @@ async def new_member_handler(update: Update, context: ContextTypes.DEFAULT_TYPE)
         if row and row[0]:
             db_execute("UPDATE users SET trial_start_time=NULL, trial_reminded=0 WHERE user_id=?", (user_id,))
 
+        # 优先检查封禁状态：被封禁用户无论试用/会员是否到期都立即踢出
+        # （kick_user(ban=True) 会设置 is_banned=1 但不清除 trial_start_time，
+        #  get_user_status 会因试用未到期优先返回 True，故需在此单独拦截）
+        if row and row[3] == 1:
+            logging.info(f"新成员 {user_id} 已被封禁（is_banned=1），立即踢出")
+            await kick_user(context, user_id, "用户已被封禁", ban=True)
+            continue
+
         # 立即检查用户资格
         from database import get_user_status
         is_valid, status = get_user_status(user_id)
 
         if not is_valid:
-            # 无有效资格（试用到期/会员到期/被封禁），立即踢出
+            # 无有效资格（试用到期/会员到期），立即踢出
             logging.info(f"新成员 {user_id} 无有效资格（{status}），立即踢出")
             await kick_user(context, user_id, status, ban=True)
             continue
