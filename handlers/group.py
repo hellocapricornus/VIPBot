@@ -6,10 +6,10 @@ from telegram.ext import ContextTypes
 import config
 from config import DELETE_DELAY
 from database import get_user, is_admin, db_execute
-from utils import send_temp
+from utils import send_temp, kick_user
 
 async def new_member_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """当有新用户加入群组时"""
+    """当有新用户加入群组时，立即检查资格，无资格立即踢出"""
     if update.effective_chat.id != config.GROUP_ID:
         return
 
@@ -32,7 +32,7 @@ async def new_member_handler(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
         await asyncio.sleep(1)
 
-        # ✅ 如果数据库没有记录，添加试用
+        # 如果数据库没有记录，添加试用
         row = get_user(user_id)
         from database import add_trial as db_add_trial
         if not row:
@@ -43,8 +43,15 @@ async def new_member_handler(update: Update, context: ContextTypes.DEFAULT_TYPE)
         if row and row[0]:
             db_execute("UPDATE users SET trial_start_time=NULL, trial_reminded=0 WHERE user_id=?", (user_id,))
 
+        # 立即检查用户资格
         from database import get_user_status
         is_valid, status = get_user_status(user_id)
+
+        if not is_valid:
+            # 无有效资格（试用到期/会员到期/被封禁），立即踢出
+            logging.info(f"新成员 {user_id} 无有效资格（{status}），立即踢出")
+            await kick_user(context, user_id, status, ban=True)
+            continue
 
         await send_temp(context, f"👋 欢迎 {member.full_name}\n{status}", config.GROUP_ID)
 
