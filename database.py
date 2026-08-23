@@ -243,7 +243,8 @@ def get_user_status(user_id: int) -> Tuple[bool, str]:
                 if days_left > 0:
                     return True, f"会员剩余 {days_left} 天"
                 else:
-                    hours_left = (expire - now()).seconds // 3600
+                    # 使用 total_seconds 避免丢失天数
+                    hours_left = int((expire - now()).total_seconds() // 3600)
                     return True, f"会员剩余 {hours_left} 小时"
             else:
                 return False, "会员已到期，请续费"
@@ -264,7 +265,9 @@ def get_user_status(user_id: int) -> Tuple[bool, str]:
             trial_start = datetime.fromisoformat(row[2]).astimezone(BEIJING)
             trial_end = trial_start + timedelta(hours=config.TRIAL_HOURS)
             if trial_end > now():
-                return True, f"试用剩余 {(trial_end-now()).seconds//3600} 小时"
+                # 使用 total_seconds 避免丢失天数
+                remain_hours = int((trial_end - now()).total_seconds() // 3600)
+                return True, f"试用剩余 {remain_hours} 小时"
             else:
                 if has_paid:
                     return False, "会员已到期，请续费"
