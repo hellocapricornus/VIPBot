@@ -58,11 +58,19 @@ def restore_orders_on_startup():
 
 # ================= 生成唯一金额 =================
 def generate_unique_amount(base_price: float, user_id: int) -> float:
-    """生成唯一金额，使用 secrets 模块确保唯一性"""
-    random_cents = secrets.randbelow(99) + 1
-    user_factor = user_id % 100
-    unique_cents = ((random_cents + user_factor) % 99) + 1
-    return base_price + unique_cents / 100
+    """生成唯一金额，确保金额键不与现有待支付订单冲突。
+
+    通过检查 pending_usdt_orders 避免两个用户生成相同金额导致订单覆盖/支付错配。
+    """
+    for _ in range(100):
+        random_cents = secrets.randbelow(99) + 1
+        user_factor = user_id % 100
+        unique_cents = ((random_cents + user_factor) % 99) + 1
+        amount = base_price + unique_cents / 100
+        if f"{amount:.2f}" not in pending_usdt_orders:
+            return amount
+    # 极端情况：扩大随机范围到 0.0001 精度
+    return base_price + (secrets.randbelow(9900) + 1) / 10000
 
 
 # ================= 交易查询（使用地址池）=================
@@ -260,11 +268,6 @@ async def show_channel_guide(update: Update, context: ContextTypes.DEFAULT_TYPE,
         )
         return
     is_valid, status = await ensure_trial_for_user(user_id, context)
-    try:
-        member = await context.bot.get_chat_member(config.GROUP_ID, user_id)
-        in_group = member.status in ["member", "administrator", "creator"]
-    except:
-        in_group = False
     keyboard = [
         [InlineKeyboardButton("🔗 加入群组", url=config.GROUP_LINK)],
         [InlineKeyboardButton("🕒 查询会员时间", callback_data="user_query")],
@@ -466,11 +469,6 @@ async def check_follow_callback(update: Update, context: ContextTypes.DEFAULT_TY
         )
         return
     is_valid, status = await ensure_trial_for_user(user_id, context)
-    try:
-        member = await context.bot.get_chat_member(config.GROUP_ID, user_id)
-        in_group = member.status in ["member", "administrator", "creator"]
-    except:
-        in_group = False
     keyboard = [
         [InlineKeyboardButton("🔗 加入群组", url=config.GROUP_LINK)],
         [InlineKeyboardButton("🕒 查询会员时间", callback_data="user_query")],
@@ -522,9 +520,10 @@ async def user_query_time(update: Update, context: ContextTypes.DEFAULT_TYPE):
             trial_end = trial_start + timedelta(hours=config.TRIAL_HOURS)
             if trial_end > now():
                 remain = trial_end - now()
-                hours = remain.seconds // 3600
+                # 使用 total_seconds 避免丢失天数
+                total_hours = int(remain.total_seconds() // 3600)
                 minutes = (remain.seconds % 3600) // 60
-                text = f"🧪 试用剩余时间: {hours}小时 {minutes}分钟"
+                text = f"🧪 试用剩余时间: {total_hours}小时 {minutes}分钟"
             else:
                 text = "❌ 试用已结束，请购买会员。"
         else:
@@ -745,6 +744,13 @@ async def check_usdt_payment_callback(update: Update, context: ContextTypes.DEFA
         return
 
     if time.time() - order["created_at"] > config.USDT_ORDER_TIMEOUT:
+        # 与 clean_expired_orders 行为一致：更新DB状态并释放地址
+        db_execute("""
+            UPDATE usdt_orders SET status='expired'
+            WHERE order_id=? AND status='pending'
+        """, (order["order_id"],))
+        if "address" in order:
+            mark_address_idle(order["address"])
         del pending_usdt_orders[amount_key]
         await query.edit_message_text("⏰ 订单已超时，请重新购买。")
         return
